@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interactive 3D Model Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pacifico&family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#a7cfef;font-family:"Lexend",sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;
+  overflow-x:hidden;width:100%;
+  opacity:0;transform:translateY(20px);
+  transition:opacity .9s ease,transform .9s ease;
+}
+body.loaded{opacity:1;transform:translateY(0)}
+.container{flex:1;display:flex;flex-direction:column;padding-bottom:32px}
+
+/* Headline */
+.headline {
+    font-family: "Pacifico";
+    font-size: clamp(20pt, 5vw, 30pt);
+    font-weight: 700;
+    text-align: center;
+    color: #5792f2;
+    margin-top: clamp(20px, 5vh, 40px);
+    margin-bottom: 20px;
+    padding: 0 16px;
+}
+.part-name{
+  text-align:center;font-size:clamp(13px,2.8vw,18px);
+  font-weight:600;color:rgba(30,43,60,.70);letter-spacing:.3px;
+  min-height:26px;transition:opacity .3s,transform .3s;margin-bottom:14px;
+}
+.part-name.fade{opacity:0;transform:translateY(5px)}
+.line { border: none; height: 2px; background: rgba(0,0,0,0.2); width: 90%; margin: 20px auto; }
+/* Controls */
+.controls-bar{display:flex;justify-content:center;margin-bottom:14px;padding:0 16px}
+.pill-container{
+  position:relative;display:flex;gap:4px;padding:6px;border-radius:999px;
+  background:#5792f2;box-shadow:0 10px 25px rgba(87,146,242,.35);
+  flex-wrap:nowrap;max-width:100%;overflow:hidden;
+}
+.pill-container button{
+  position:relative;background:none;border:none;padding:10px 18px;
+  font-size:clamp(12px,2.5vw,15px);border-radius:999px;cursor:pointer;z-index:2;
+  color:rgba(255,255,255,.85);font-family:"Lexend",sans-serif;font-weight:500;
+  line-height:1;display:flex;align-items:center;gap:7px;justify-content:center;
+  transition:color .25s ease;white-space:nowrap;flex-shrink:0;
+}
+.pill-container button:hover{color:#fff}
+.pill-container button.active{color:#fff;font-weight:600}
+
+.model-pill-container{
+  position:relative;display:flex;gap:4px;padding:6px;border-radius:999px;
+  background:rgba(255,255,255,.28);backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.45);
+  box-shadow:0 10px 25px rgba(0,0,0,.1);flex-wrap:nowrap;max-width:100%;overflow:hidden;
+}
+.model-pill-container button{
+  position:relative;background:none;border:none;padding:9px 16px;
+  font-size:clamp(11px,2.3vw,14px);border-radius:999px;cursor:pointer;z-index:2;
+  color:rgba(30,43,60,.65);font-family:"Lexend",sans-serif;font-weight:500;
+  line-height:1;display:flex;align-items:center;gap:6px;justify-content:center;
+  transition:color .25s;white-space:nowrap;flex-shrink:0;
+}
+.model-pill-container button:hover{color:rgba(30,43,60,1)}
+.model-pill-container button.active{color:#5792f2;font-weight:700}
+.model-dot{
+  width:9px;height:9px;border-radius:50%;flex-shrink:0;
+  border:1.5px solid rgba(255,255,255,.6);box-shadow:0 0 4px rgba(0,0,0,.18);
+  transition:transform .2s;
+}
+.model-pill-container button.active .model-dot{transform:scale(1.3)}
+
+.selector{
+  position:absolute;top:50%;transform:translateY(-50%);height:calc(100% - 12px);
+  background:rgba(255,255,255,.28);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border-radius:999px;
+  transition:left .35s cubic-bezier(.25,.8,.25,1),width .35s cubic-bezier(.25,.8,.25,1);
+  box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:1;
+  border:1px solid rgba(255,255,255,.3);pointer-events:none;opacity:0;
+}
+.selector.ready{
+  opacity:1;
+  transition:left .35s cubic-bezier(.25,.8,.25,1),width .35s cubic-bezier(.25,.8,.25,1),opacity .2s;
+}
+.model-selector{
+  position:absolute;top:50%;transform:translateY(-50%);height:calc(100% - 12px);
+  background:rgba(87,146,242,.15);border-radius:999px;
+  transition:left .35s cubic-bezier(.25,.8,.25,1),width .35s cubic-bezier(.25,.8,.25,1);
+  box-shadow:0 2px 10px rgba(87,146,242,.2);z-index:1;
+  border:1.5px solid rgba(87,146,242,.3);pointer-events:none;opacity:0;
+}
+.model-selector.ready{opacity:1}
+
+/* Canvas */
+#three-container{
+  width:75vw;max-width:1200px;height:calc(75vw * 9 / 16);max-height:calc(1200px * 9 / 16);
+  margin:0 auto;border-radius:30px;overflow:hidden;
+  background:rgba(255,255,255,.18);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.35);box-shadow:0 16px 40px rgba(0,0,0,.18);
+  position:relative;cursor:grab;
+}
+#three-container:active{cursor:grabbing}
+#three-container canvas{display:block;width:100%!important;height:100%!important}
+.canvas-hint{
+  position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+  background:rgba(255,255,255,.22);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.35);color:rgba(30,43,60,.8);
+  font-size:12px;font-weight:500;padding:6px 16px;border-radius:999px;
+  display:flex;align-items:center;gap:6px;white-space:nowrap;
+  pointer-events:none;transition:opacity .6s;z-index:10;
+}
+.canvas-hint.hidden{opacity:0}
+
+/* Stats */
+.stats-bar{
+  display:flex;align-items:center;justify-content:center;gap:0;margin-top:16px;
+  background:rgba(255,255,255,.28);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.4);border-radius:999px;padding:10px 28px;
+  box-shadow:0 8px 24px rgba(0,0,0,.1);width:fit-content;margin-left:auto;margin-right:auto;
+  flex-wrap:wrap;row-gap:8px;
+}
+.stat-item{display:flex;flex-direction:column;align-items:center;padding:0 20px;gap:2px}
+.stat-label{font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:rgba(30,43,60,.55)}
+.stat-value{font-size:15px;font-weight:700;color:#1e2b3c}
+.stat-divider{width:1px;height:30px;background:rgba(0,0,0,.12);flex-shrink:0}
+
+/* Loading */
+.loading-overlay{
+  position:fixed;inset:0;background:#a7cfef;
+  display:flex;align-items:center;justify-content:center;
+  z-index:9999;transition:opacity .5s;
+}
+.loader{display:flex;gap:12px}
+.loader span{
+  width:16px;height:16px;background:#5792f2;border-radius:50%;
+  animation:dotPulse .7s infinite ease-in-out;
+}
+.loader span:nth-child(2){animation-delay:.15s}
+.loader span:nth-child(3){animation-delay:.3s}
+@keyframes dotPulse{0%,80%,100%{transform:scale(.4);opacity:.3}40%{transform:scale(1);opacity:1}}
+
+@media(max-width:640px){
+  .pill-container{gap:2px;padding:5px}
+  .pill-container button{padding:9px 12px;gap:5px}
+  .pill-container button span{display:none}
+  .model-pill-container{gap:2px;padding:5px}
+  .model-pill-container button{padding:8px 11px}
+  #three-container{border-radius:20px}
+  .stats-bar{padding:10px 12px}
+  .stat-item{padding:0 12px}
+}
+
+/* Responsive Canvas */
+@media(max-width:1024px){
+  #three-container{
+    width:85vw;max-width:85vw;height:calc(85vw * 9 / 16);
+  }
+}
+
+@media(max-width:768px){
+  #three-container{
+    width:95vw;max-width:95vw;height:calc(95vw * 9 / 16);
+  }
+  .headline{font-size:clamp(18pt,6vw,24pt)}
+  .controls-bar{margin-bottom:10px}
+  .stats-bar{margin-top:12px;padding:8px 16px}
+}
+</style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:18px">
+    <div class="loader"><span></span><span></span><span></span></div>
+    <p style="color:#5792f2;font-family:Lexend,sans-serif;font-size:13px;font-weight:500;opacity:.8">Loading models…</p>
+  </div>
+</div>
+
+<div class="container">
+  <h1 class="headline">3D Model Viewer</h1>
+  <hr class="line">
+
+  <div class="controls-bar">
+    <div class="pill-container" id="viewPill">
+      <button id="btnOrbit" class="active" title="Auto-Orbit">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="10" ry="4"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+        <span>Orbit</span>
+      </button>
+      <button id="btnReset" title="Reset View">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>
+        <span>Reset</span>
+      </button>
+      <button id="btnWire" title="Wireframe">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="8.5" x2="22" y2="8.5"/><line x1="2" y1="15.5" x2="22" y2="15.5"/></svg>
+        <span>Wire</span>
+      </button>
+      <div class="selector" id="viewSelector"></div>
+    </div>
+  </div>
+
+  <div class="controls-bar" id="modelControlsBar" style="display:none">
+    <div class="model-pill-container" id="modelPill">
+      <div class="model-selector" id="modelSelector"></div>
+    </div>
+  </div>
+
+  <div id="three-container">
+    <div class="canvas-hint" id="canvasHint">
+      Left: Rotate &nbsp;·&nbsp; Right: Pan &nbsp;·&nbsp; Scroll: Zoom
+    </div>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat-item">
+      <span class="stat-label">Component</span>
+      <span class="stat-value" id="statComponent">—</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-label">Triangles</span>
+      <span class="stat-value" id="statTri">—</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-label">Format</span>
+      <span class="stat-value" id="statFormat">—</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+/* ============================================================
+   CONFIGURE MODELS & COLORS
+   ============================================================
+
+   Option 1: Load OBJ files from a folder (RECOMMENDED)
+   - Place .obj files in a folder (e.g., "models/")
+   - Update OBJ_FOLDER with the folder path
+   - Add entries to MODEL_CONFIGS with matching names
+   
+   Option 2: Use Base64-encoded STL files (legacy)
+   1) Convert STL to Base64 (Terminal):
+      python3 -c "import base64; print(base64.b64encode(open('model.stl','rb').read()).decode())"
+      Or online: https://base64.guru/converter/encode/file
+
+   2) Enter Base64 string as value in STL_B64
+   3) Set each model name and color in MODEL_CONFIGS
+   
+   If both are empty → Demo shapes will be displayed
+   ============================================================ */
+
+// Folder path for OBJ files (set to empty string "" to disable)
+const OBJ_FOLDER = "models/";  // Example: "models/", "3d-models/", etc.
+
+const STL_B64 = {
+  // legacy_part: "YOUR_BASE64_STRING_HERE",
+};
+
+const MODEL_CONFIGS = [
+  {
+    name: "Cable clip",
+    filename: "CableClip.obj",
+    color: "#000000",
+    emissive: "#001166",
+    emissiveIntensity: 0.12,
+    metalness: 0.00,
+    roughness: 0.80,
+  },
+  {
+    name: "Clip Lademodul",
+    filename: "Clip Lademodul - OBJ.obj",
+    color: "#000000",
+    emissive: "#002244",
+    emissiveIntensity: 0.18,
+    metalness: 0.15,
+    roughness: 0.80,
+  },
+  {
+    name: "Clip Taster",
+    filename: "Clip Taster - OBJ.obj",
+    color: "#000000",
+    emissive: "#001166",
+    emissiveIntensity: 0.12,
+    metalness: 0.20,
+    roughness: 0.80,
+  },
+  {
+    name: "Outer Shell",
+    filename: "Hülle - OBJ.obj",
+    color: "#FFC533",
+    emissive: "#5A3A00",
+    emissiveIntensity: 0.08,
+    metalness: 0.05,
+    roughness: 0.45,
+  },
+  {
+    name: "Outer Shell - Weather",
+    filename: "Hülle Wasserfest - OBJ.obj",
+    color: "#FFC533",
+    emissive: "#5A3A00",
+    emissiveIntensity: 0.08,
+    metalness: 0.05,
+    roughness: 0.50,
+  },
+  {
+    name: "Inner Shell",
+    filename: "Innenbau - OBJ.obj",
+    color: "#66FF33",
+    emissive: "#224422",
+    emissiveIntensity: 0.12,
+    metalness: 0.00,
+    roughness: 0.40,
+  },
+  {
+    name: "Frontplate",
+    filename: "Frontplate Cut.obj",
+    color: "#000000",
+    emissive: "#001166",
+    emissiveIntensity: 0.12,
+    metalness: 0.00,
+    roughness: 0.80,
+    rotation: { x: Math.PI * 1.5, y: 0, z: 0 },
+  },
+  {
+    name: "Backplate with QR",
+    filename: "BackPlate.obj",
+    filename2: "QR-Code.obj",
+    // Backplate-Farbe (matt schwarz)
+    color: "#000000",
+    emissive: "#334455",
+    emissiveIntensity: 0.05,
+    metalness: 0.05,
+    roughness: 0.80,
+
+    // QR-Code-Farbe (#A7CFEF)
+    color2: "#A7CFEF",
+    emissive2: "#000000",
+    emissiveIntensity2: 0.03,
+    metalness2: 0.00,
+    roughness2: 0.20,
+
+    // Offset for QR position relative to Backplate
+    qrOffsetX: 0.5, // move QR slightly left
+    qrOffsetY: -0.825, // move QR slightly down
+    qrOffsetZ: -3.8,
+
+    rotation: { x: Math.PI * 1.5, y: 0, z: 0 },
+  },
+];
+
+/* ── STL Parser ─────────────────────────────────────────────── */
+function b64ToBuffer(b64){
+  const bin=atob(b64),buf=new ArrayBuffer(bin.length),u8=new Uint8Array(buf);
+  for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);return buf;
+}
+function parseBinarySTL(buffer){
+  const view=new DataView(buffer),nTri=view.getUint32(80,true);
+  const pos=new Float32Array(nTri*9),nrm=new Float32Array(nTri*9);
+  let off=84,pi=0,ni=0;
+  for(let i=0;i<nTri;i++){
+    const nx=view.getFloat32(off,true),ny=view.getFloat32(off+4,true),nz=view.getFloat32(off+8,true);
+    off+=12;
+    for(let v=0;v<3;v++){
+      pos[pi++]=view.getFloat32(off,true);pos[pi++]=view.getFloat32(off+4,true);pos[pi++]=view.getFloat32(off+8,true);
+      off+=12;nrm[ni++]=nx;nrm[ni++]=ny;nrm[ni++]=nz;
+    }
+    off+=2;
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute("position",new THREE.BufferAttribute(pos,3));
+  geo.setAttribute("normal",new THREE.BufferAttribute(nrm,3));
+  return{geo,triCount:nTri};
+}
+function parseASCIISTL(buffer){
+  const text=new TextDecoder().decode(buffer),verts=[];
+  const rx=/vertex\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)/g;
+  let m;while((m=rx.exec(text))!==null)verts.push(+m[1],+m[2],+m[3]);
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute("position",new THREE.BufferAttribute(new Float32Array(verts),3));
+  geo.computeVertexNormals();return{geo,triCount:verts.length/9};
+}
+function parseSTLBuffer(buf){
+  const nTri=new DataView(buf).getUint32(80,true),expected=84+nTri*50;
+  const isBin=buf.byteLength===expected||(()=>{
+    const b=new Uint8Array(buf,0,5);return!String.fromCharCode(...b).toLowerCase().startsWith("solid");
+  })();
+  return isBin?parseBinarySTL(buf):parseASCIISTL(buf);
+}
+
+/* ── OBJ Parser ────────────────────────────────────────────── */
+function parseOBJText(text){
+  const pos=[], nrm=[], faces=[];
+  const lines=text.split('\n');
+  
+  lines.forEach(line=>{
+    const trimmed=line.trim();
+    if(!trimmed || trimmed.startsWith('#')) return;
+    
+    const parts=trimmed.split(/\s+/);
+    const cmd=parts[0];
+    
+    if(cmd==='v'){
+      const x=parseFloat(parts[1]), y=parseFloat(parts[2]), z=parseFloat(parts[3]);
+      pos.push(x,y,z);
+    }else if(cmd==='vn'){
+      const nx=parseFloat(parts[1]), ny=parseFloat(parts[2]), nz=parseFloat(parts[3]);
+      nrm.push(nx,ny,nz);
+    }else if(cmd==='f'){
+      // Parse face vertices (support triangles and quads)
+      const fverts=[];
+      for(let j=1;j<parts.length;j++){
+        const indices=parts[j].split('/');
+        const vi=parseInt(indices[0])-1; // vertex index
+        const ni=indices[2]?parseInt(indices[2])-1:-1; // normal index
+        fverts.push({vi,ni});
+      }
+      // Triangulate if needed
+      for(let j=1;j<fverts.length-1;j++){
+        faces.push(fverts[0],fverts[j],fverts[j+1]);
+      }
+    }
+  });
+  
+  // Build arrays
+  const posArray=new Float32Array(faces.length*3);
+  const nrmArray=nrm.length>0?new Float32Array(faces.length*3):null;
+  
+  faces.forEach((f,i)=>{
+    const pi=f.vi*3;
+    if(pi+2<pos.length){
+      posArray[i*3]=pos[pi];
+      posArray[i*3+1]=pos[pi+1];
+      posArray[i*3+2]=pos[pi+2];
+    }
+    if(nrmArray && f.ni>=0){
+      const ni=f.ni*3;
+      if(ni+2<nrm.length){
+        nrmArray[i*3]=nrm[ni];
+        nrmArray[i*3+1]=nrm[ni+1];
+        nrmArray[i*3+2]=nrm[ni+2];
+      }
+    }
+  });
+  
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute("position",new THREE.BufferAttribute(posArray,3));
+  if(nrmArray)geo.setAttribute("normal",new THREE.BufferAttribute(nrmArray,3));
+  geo.computeVertexNormals();
+  
+  return{geo, triCount:Math.floor(faces.length/3)};
+}
+
+function alignSecondGeoToFirst(geoA, geoB){
+  geoA.computeBoundingBox();
+  geoB.computeBoundingBox();
+  const centerA=new THREE.Vector3();
+  const centerB=new THREE.Vector3();
+  geoA.boundingBox.getCenter(centerA);
+  geoB.boundingBox.getCenter(centerB);
+  const offset=new THREE.Vector3().subVectors(centerA, centerB);
+  const posB = geoB.attributes.position.array;
+  for(let i=0;i<posB.length;i+=3){
+    posB[i] += offset.x;
+    posB[i+1] += offset.y;
+    posB[i+2] += offset.z;
+  }
+  geoB.attributes.position.needsUpdate=true;
+  geoB.computeBoundingBox();
+  geoB.computeVertexNormals();
+}
+
+async function loadOBJFile(path){
+  const resp=await fetch(path);
+  if(!resp.ok) throw new Error(`Failed to load ${path}`);
+  const text=await resp.text();
+  return parseOBJText(text);
+}
+
+function centreAndScale(geo, cfg = null){
+  geo.computeBoundingBox();
+  const box=geo.boundingBox,c=new THREE.Vector3(),s=new THREE.Vector3();
+  box.getCenter(c);box.getSize(s);
+  
+  // Skip auto-rotation if custom rotation is defined
+  let skipAutoRotation = cfg && cfg.rotation && (cfg.rotation.x || cfg.rotation.y || cfg.rotation.z);
+  
+  if(!skipAutoRotation){
+    // Auto-rotate to make the longest axis vertical (stand upright)
+    const dims=[
+      {axis:0,length:s.x}, // X
+      {axis:1,length:s.y}, // Y
+      {axis:2,length:s.z}  // Z
+    ];
+    dims.sort((a,b)=>b.length-a.length);
+    const longestAxis=dims[0].axis;
+    
+    let rotationMatrix;
+    if(longestAxis===0){ // X is longest, rotate around Z to make Y vertical
+      rotationMatrix=new THREE.Matrix4().makeRotationZ(Math.PI/2);
+    }else if(longestAxis===2){ // Z is longest, rotate around X to make Y vertical
+      rotationMatrix=new THREE.Matrix4().makeRotationX(Math.PI/2);
+    }else{
+      rotationMatrix=null;
+    }
+    
+    if(rotationMatrix){
+      geo.applyMatrix4(rotationMatrix);
+      geo.computeBoundingBox();
+      box.getCenter(c);box.getSize(s);
+    }
+    
+    // Additional 180-degree rotation to flip models upside down
+    const flipMatrix = new THREE.Matrix4().makeRotationX(Math.PI);
+    geo.applyMatrix4(flipMatrix);
+    geo.computeBoundingBox();
+    box.getCenter(c);box.getSize(s);
+  }
+  
+  // Apply custom rotation from MODEL_CONFIGS
+  if(cfg && cfg.rotation){
+    const rotMatrix = new THREE.Matrix4();
+    if(cfg.rotation.x) rotMatrix.multiply(new THREE.Matrix4().makeRotationX(cfg.rotation.x));
+    if(cfg.rotation.y) rotMatrix.multiply(new THREE.Matrix4().makeRotationY(cfg.rotation.y));
+    if(cfg.rotation.z) rotMatrix.multiply(new THREE.Matrix4().makeRotationZ(cfg.rotation.z));
+    geo.applyMatrix4(rotMatrix);
+    geo.computeBoundingBox();
+    box.getCenter(c);box.getSize(s);
+  }
+  
+  const sc=6/Math.max(s.x,s.y,s.z,1),pos=geo.attributes.position.array;
+  for(let i=0;i<pos.length;i+=3){pos[i]=(pos[i]-c.x)*sc;pos[i+1]=(pos[i+1]-c.y)*sc;pos[i+2]=(pos[i+2]-c.z)*sc;}
+  geo.attributes.position.needsUpdate=true;geo.computeBoundingBox();
+  const lift=-geo.boundingBox.min.y + 7.0; // Hebe die Modelle 7.0 Einheiten höher an
+  for(let i=0;i<pos.length;i+=3)pos[i+1]+=lift;
+  geo.attributes.position.needsUpdate=true;geo.computeBoundingBox();geo.computeVertexNormals();
+}
+function makeDemoGeo(index){
+  const shapes=[
+    ()=>new THREE.TorusKnotGeometry(1.8,.55,120,18),
+    ()=>new THREE.IcosahedronGeometry(2.2,2),
+    ()=>new THREE.TorusGeometry(2.0,.7,24,60),
+    ()=>new THREE.OctahedronGeometry(2.4,2),
+    ()=>new THREE.CylinderGeometry(.8,1.6,4.2,32),
+  ];
+  const geo=shapes[index%shapes.length]();
+  geo.computeBoundingBox();
+  const lift=-geo.boundingBox.min.y,pos=geo.attributes.position.array;
+  for(let i=0;i<pos.length;i+=3)pos[i+1]+=lift;
+  geo.attributes.position.needsUpdate=true;geo.computeBoundingBox();
+  return{geo,triCount:Math.floor(pos.length/9)};
+}
+
+/* ── Scene ──────────────────────────────────────────────────── */
+const container=document.getElementById("three-container");
+function getSize(){return{w:container.clientWidth||window.innerWidth,h:container.clientHeight||Math.round(window.innerHeight*.55)};}
+const{w:iW,h:iH}=getSize();
+const scene=new THREE.Scene();scene.background=null;
+const camera=new THREE.PerspectiveCamera(45,iW/iH,.01,2000);
+camera.position.set(0,3,12);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setSize(iW,iH);renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff,1.0));
+const sun=new THREE.DirectionalLight(0xfff8e0,3.0);sun.position.set(12,22,10);sun.castShadow=true;scene.add(sun);
+const fill=new THREE.DirectionalLight(0xaacfff,.75);fill.position.set(-10,4,-8);scene.add(fill);
+const rim=new THREE.DirectionalLight(0xffffff,.5);rim.position.set(0,-8,-12);scene.add(rim);
+
+  const grid=new THREE.GridHelper(60,40,0x5588bb,0x3366aa);grid.material.opacity=.13;grid.material.transparent=true;grid.position.y=-2.0;scene.add(grid);
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(60,60),new THREE.MeshStandardMaterial({color:0x8fb8cc,transparent:true,opacity:.22,roughness:.95}));
+ground.rotation.x=-Math.PI/2;ground.position.y=-2.0;ground.receiveShadow=true;scene.add(ground);
+
+/* ── Camera controls ────────────────────────────────────────── */
+let theta=.5,phi=.38,orbitRadius=12,orbitAngle=.5;
+let orbitActive=true,leftDown=false,rightDown=false,prevMouse={x:0,y:0};
+const panOffset=new THREE.Vector3(),_right=new THREE.Vector3(),_dir=new THREE.Vector3();
+const hint=document.getElementById("canvasHint");let hintHidden=false;
+function hideHint(){if(!hintHidden){hint.classList.add("hidden");hintHidden=true;}}
+container.addEventListener("contextmenu",e=>e.preventDefault());
+container.addEventListener("mousedown",e=>{
+  if(e.button===0)leftDown=true;if(e.button===1||e.button===2)rightDown=true;
+  prevMouse={x:e.clientX,y:e.clientY};hideHint();
+});
+window.addEventListener("mouseup",()=>{leftDown=false;rightDown=false;});
+window.addEventListener("mousemove",e=>{
+  const dx=e.clientX-prevMouse.x,dy=e.clientY-prevMouse.y;
+  prevMouse={x:e.clientX,y:e.clientY};
+  if(leftDown&&!rightDown){
+    theta-=dx*.007;phi=Math.max(-Math.PI/2 + 0.1,Math.min(Math.PI/2.05,phi+dy*.006));
+    if(orbitActive){orbitActive=false;updateOrbitBtn();}
+  }
+  if(rightDown){
+    const ps=orbitRadius*.0013;camera.getWorldDirection(_dir);
+    _right.crossVectors(_dir,camera.up).normalize();
+    panOffset.addScaledVector(_right,-dx*ps);panOffset.addScaledVector(camera.up,dy*ps);
+  }
+});
+container.addEventListener("wheel",e=>{e.preventDefault();const zoomFactor=0.95;orbitRadius*=Math.pow(zoomFactor,e.deltaY*.01);orbitRadius=Math.max(1,Math.min(100,orbitRadius));},{passive:false});
+let _touches=[];
+container.addEventListener("touchstart",e=>{_touches=[...e.touches];prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};hideHint();},{passive:true});
+window.addEventListener("touchend",e=>{_touches=[...e.touches];},{passive:true});
+window.addEventListener("touchmove",e=>{
+  if(e.touches.length===1){
+    const dx=e.touches[0].clientX-prevMouse.x,dy=e.touches[0].clientY-prevMouse.y;
+    theta-=dx*.007;phi=Math.max(-Math.PI/2 + 0.1,Math.min(Math.PI/2.05,phi+dy*.006));
+    prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};
+    if(orbitActive){orbitActive=false;updateOrbitBtn();}
+  }
+  if(e.touches.length===2&&_touches.length>=2){
+    const d0=Math.hypot(_touches[0].clientX-_touches[1].clientX,_touches[0].clientY-_touches[1].clientY);
+    const d1=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+    orbitRadius=Math.max(1,Math.min(100,orbitRadius-(d1-d0)*.06));_touches=[...e.touches];
+  }
+},{passive:true});
+
+/* ── Models ─────────────────────────────────────────────────── */
+const models=[];let activeIndex=-1,wireActive=false;
+function getCfg(i){return MODEL_CONFIGS[i]||{name:`Bauteil ${i+1}`,color:"#5792f2",emissive:"#001166",emissiveIntensity:.15,metalness:.25,roughness:.65};}
+function addModel({geo,triCount},i){
+  const cfg=getCfg(i);
+
+  // Erstelle Material für die erste Datei
+  const mat1=new THREE.MeshStandardMaterial({
+    color:cfg.color,
+    emissive:cfg.emissive,
+    emissiveIntensity:cfg.emissiveIntensity,
+    metalness:cfg.metalness,
+    roughness:cfg.roughness
+  });
+
+  // Wenn filename2 vorhanden ist, erstelle Material für die zweite Datei
+  let mat2 = null;
+  if(cfg.filename2){
+    mat2 = new THREE.MeshStandardMaterial({
+      color: cfg.color2 || cfg.color,
+      emissive: cfg.emissive2 || cfg.emissive,
+      emissiveIntensity: cfg.emissiveIntensity2 || cfg.emissiveIntensity,
+      metalness: cfg.metalness2 || cfg.metalness,
+      roughness: cfg.roughness2 || cfg.roughness
+    });
+  }
+
+  // Erstelle Mesh mit Material(en)
+  let mesh;
+  if(mat2){
+    // Zwei Materialien für kombinierte Geometrie
+    mesh = new THREE.Mesh(geo, [mat1, mat2]);
+  } else {
+    // Einzelnes Material
+    mesh = new THREE.Mesh(geo, mat1);
+  }
+
+  mesh.castShadow=true;mesh.receiveShadow=true;mesh.visible=false;scene.add(mesh);
+
+  const wf=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0xffffff,wireframe:true,transparent:true,opacity:.12}));
+  wf.visible=false;scene.add(wf);
+  models.push({name:cfg.name,mesh,wf,triCount,cfg});
+}
+function showModel(i){
+  models.forEach((m,j)=>{m.mesh.visible=(j===i);m.wf.visible=(j===i)&&wireActive;});
+  activeIndex=i;
+  if(i>=0){
+    const geo = models[i].mesh.geometry;
+    geo.computeBoundingBox(); // Sicherstellen, dass Bounding Box aktuell ist
+    const bb = geo.boundingBox, sz = new THREE.Vector3();
+    bb.getSize(sz);
+
+    // Berechne optimale Kameradistanz basierend auf Modellgröße und Sichtfeld
+    const maxDim = Math.max(sz.x, sz.y, sz.z);
+    const fovRad = (camera.fov * Math.PI) / 180; // FOV in Radianten
+    // Erhöhe den Multiplikator für besseren Abstand
+    orbitRadius = Math.max(8, (maxDim / 2) / Math.tan(fovRad / 2) * 1.5);
+
+    // Kamera auf die Mitte des Modells zentrieren
+    const center = new THREE.Vector3();
+    bb.getCenter(center);
+    panOffset.copy(center);
+
+    // Kamera zentrieren für neues Modell
+    theta = .5; phi = .38; orbitActive = true; updateOrbitBtn();
+
+    // Kamera-Position sofort aktualisieren (nicht warten auf nächsten Frame)
+    const cx=orbitRadius*Math.sin(theta)*Math.cos(phi);
+    const cy=orbitRadius*Math.sin(phi);
+    const cz=orbitRadius*Math.cos(theta)*Math.cos(phi);
+    camera.position.set(cx+panOffset.x,cy+panOffset.y,cz+panOffset.z);
+    camera.lookAt(panOffset.x,panOffset.y,panOffset.z);
+  }
+  updateStats();updateModelPill();
+}
+function setWire(on){wireActive=on;if(activeIndex>=0)models[activeIndex].wf.visible=on;}
+
+/* ── UI ─────────────────────────────────────────────────────── */
+function updateStats(){
+  if(activeIndex>=0){
+    document.getElementById("statComponent").textContent=models[activeIndex].name;
+    document.getElementById("statTri").textContent=models[activeIndex].triCount.toLocaleString("en-US");
+    document.getElementById("statFormat").textContent=OBJ_FOLDER && OBJ_FOLDER!=""?"OBJ":(Object.keys(STL_B64).length>0?"STL":"Demo");
+  }
+}
+const modelPill=document.getElementById("modelPill");
+const modelSelector=document.getElementById("modelSelector");
+const modelBar=document.getElementById("modelControlsBar");
+
+function buildModelPill(){
+  [...modelPill.querySelectorAll("button")].forEach(b=>b.remove());
+  models.forEach((m,i)=>{
+    const btn=document.createElement("button");
+    const dot=document.createElement("span");dot.className="model-dot";dot.style.background=m.cfg.color;
+    btn.appendChild(dot);btn.appendChild(document.createTextNode(m.name));
+    btn.addEventListener("click",()=>{showModel(i);moveModelSel(btn);});
+    modelPill.appendChild(btn);
+  });
+  modelBar.style.display=models.length>1?"flex":"none";
+}
+function updateModelPill(){
+  const btns=[...modelPill.querySelectorAll("button")];
+  btns.forEach((b,i)=>b.classList.toggle("active",i===activeIndex));
+  if(activeIndex>=0&&btns[activeIndex])setTimeout(()=>moveModelSel(btns[activeIndex]),50);
+}
+function moveModelSel(btn){
+  const pr=modelPill.getBoundingClientRect(),br=btn.getBoundingClientRect();
+  modelSelector.style.left=(br.left-pr.left)+"px";modelSelector.style.width=br.width+"px";
+  modelSelector.classList.add("ready");
+}
+
+const viewSel=document.getElementById("viewSelector");
+function moveViewSel(btn){
+  const pr=document.getElementById("viewPill").getBoundingClientRect(),br=btn.getBoundingClientRect();
+  viewSel.style.left=(br.left-pr.left)+"px";viewSel.style.width=br.width+"px";
+  viewSel.classList.add("ready");
+}
+function updateOrbitBtn(){document.getElementById("btnOrbit").classList.toggle("active",orbitActive);}
+
+document.getElementById("btnOrbit").addEventListener("click",()=>{
+  orbitActive=!orbitActive;if(orbitActive)theta=orbitAngle;
+  updateOrbitBtn();moveViewSel(document.getElementById("btnOrbit"));
+});
+document.getElementById("btnReset").addEventListener("click",()=>{
+  theta=.5;phi=.38;orbitRadius=12;panOffset.set(0,0,0);
+  if(activeIndex>=0)showModel(activeIndex);
+  orbitActive=true;updateOrbitBtn();moveViewSel(document.getElementById("btnReset"));
+});
+document.getElementById("btnWire").addEventListener("click",()=>{
+  wireActive=!wireActive;document.getElementById("btnWire").classList.toggle("active",wireActive);
+  setWire(wireActive);moveViewSel(document.getElementById("btnWire"));
+});
+setTimeout(()=>{moveViewSel(document.getElementById("btnOrbit"));viewSel.classList.add("ready");},80);
+
+/* ── Load ───────────────────────────────────────────────────── */
+async function loadModels(){
+  // Load OBJ files if folder is configured
+  if(OBJ_FOLDER && OBJ_FOLDER!=""){
+    for(let i=0;i<MODEL_CONFIGS.length;i++){
+      const cfg=MODEL_CONFIGS[i];
+      if(!cfg.filename) continue;
+      try{
+        const path=OBJ_FOLDER+cfg.filename;
+        let result=await loadOBJFile(path);
+
+        // Wenn filename2 vorhanden ist, lade zweite Datei und kombiniere
+        if(cfg.filename2){
+          const path2 = OBJ_FOLDER + cfg.filename2;
+          const result2 = await loadOBJFile(path2);
+
+          // Drehe QR-Code um 180° (auf die Rückseite) und zusätzlich auf den Kopf
+          const qrFlip = new THREE.Matrix4().makeRotationY(Math.PI).multiply(new THREE.Matrix4().makeRotationX(Math.PI));
+          result2.geo.applyMatrix4(qrFlip);
+          result2.geo.computeBoundingBox();
+          result2.geo.computeVertexNormals();
+
+          // Positioniere QR-Code relativ zur Backplate-Mitte (zuerst anpassen, damit sie perfekt ineinander sitzen)
+          alignSecondGeoToFirst(result.geo, result2.geo);
+
+          // Feinabstimmung: QR-Code in eine Einkerbung bringen (optional konfigurierbar)
+          const bbBack = result.geo.boundingBox;
+          const bbQR = result2.geo.boundingBox;
+          const qrInset = cfg.qrInset !== undefined ? cfg.qrInset :- 0.9; // Standard 5 mm Modell-Einheiten
+
+          // QR soll nahe am Backplate-Oberteil liegen, aber im Recess (einkerbung)
+          const desiredQRMaxY = bbBack.max.y - qrInset;
+          const currentQRMaxY = bbQR.max.y;
+          const yCorrection = desiredQRMaxY - currentQRMaxY;
+
+          const qrOffsetX = cfg.qrOffsetX || 0;
+          const qrOffsetY = cfg.qrOffsetY || 0;
+          const qrOffsetZ = cfg.qrOffsetZ || 0;
+
+          if(Math.abs(yCorrection) > 1e-6 || Math.abs(qrOffsetX) > 1e-8 || Math.abs(qrOffsetY) > 1e-8 || Math.abs(qrOffsetZ) > 1e-8){
+            const pos2 = result2.geo.attributes.position.array;
+            for(let p=0;p<pos2.length;p+=3){
+              if(Math.abs(yCorrection) > 1e-6) pos2[p+1] += yCorrection;
+              pos2[p] += qrOffsetX;
+              pos2[p+1] += qrOffsetY;
+              pos2[p+2] += qrOffsetZ;
+            }
+            result2.geo.attributes.position.needsUpdate=true;
+            result2.geo.computeBoundingBox();
+          }
+
+          // Kombiniere beide Geometrien
+          const combinedGeo = new THREE.BufferGeometry();
+
+          // Sammle alle Positionen und Normals
+          const positions1 = result.geo.attributes.position.array;
+          const normals1 = result.geo.attributes.normal ? result.geo.attributes.normal.array : null;
+          const positions2 = result2.geo.attributes.position.array;
+          const normals2 = result2.geo.attributes.normal ? result2.geo.attributes.normal.array : null;
+
+          // Erstelle Gruppen für Material-Zuweisung
+          combinedGeo.addGroup(0, positions1.length / 3, 0); // Material 0 für erste Datei
+          combinedGeo.addGroup(positions1.length / 3, positions2.length / 3, 1); // Material 1 für zweite Datei
+
+          // Kombiniere Positionen
+          const combinedPositions = new Float32Array(positions1.length + positions2.length);
+          combinedPositions.set(positions1, 0);
+          combinedPositions.set(positions2, positions1.length);
+          combinedGeo.setAttribute('position', new THREE.BufferAttribute(combinedPositions, 3));
+
+          // Kombiniere Normals falls vorhanden
+          if(normals1 && normals2){
+            const combinedNormals = new Float32Array(normals1.length + normals2.length);
+            combinedNormals.set(normals1, 0);
+            combinedNormals.set(normals2, normals1.length);
+            combinedGeo.setAttribute('normal', new THREE.BufferAttribute(combinedNormals, 3));
+          } else {
+            combinedGeo.computeVertexNormals();
+          }
+
+          result = {geo: combinedGeo, triCount: (result.triCount + result2.triCount)};
+        }
+
+        centreAndScale(result.geo, cfg);
+        addModel(result,i);
+      }catch(e){
+        console.warn("Error loading OBJ:",cfg.filename,e);
+        // Fallback to demo
+        addModel(makeDemoGeo(i),i);
+      }
+    }
+  }
+  // Load STL files if configured
+  else if(Object.keys(STL_B64).length>0){
+    const keys=Object.keys(STL_B64);
+    keys.forEach((k,i)=>{
+      try{const r=parseSTLBuffer(b64ToBuffer(STL_B64[k]));centreAndScale(r.geo, getCfg(i));addModel(r,i);}
+      catch(e){console.warn("Error loading STL:",k,e);}
+    });
+  }
+  // Use demo shapes
+  else{
+    for(let i=0;i<Math.min(MODEL_CONFIGS.length,5);i++){
+      const result = makeDemoGeo(i);
+      centreAndScale(result.geo, MODEL_CONFIGS[i]);
+      addModel(result,i);
+    }
+  }
+  buildModelPill();showModel(0);
+}
+
+/* ── Render loop ────────────────────────────────────────────── */
+const clock=new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),.05);
+  if(orbitActive){orbitAngle+=dt*.22;theta=orbitAngle;}
+  const cx=orbitRadius*Math.sin(theta)*Math.cos(phi);
+  const cy=orbitRadius*Math.sin(phi);
+  const cz=orbitRadius*Math.cos(theta)*Math.cos(phi);
+  camera.position.set(cx+panOffset.x,cy+panOffset.y,cz+panOffset.z);
+  camera.lookAt(panOffset.x,panOffset.y,panOffset.z);
+  renderer.render(scene,camera);
+}
+
+window.addEventListener("resize",()=>{
+  const{w,h}=getSize();renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();
+});
+window.addEventListener("load",()=>{
+  const ov=document.getElementById("loadingOverlay");
+  ov.style.opacity="0";setTimeout(()=>ov.style.display="none",520);
+  document.body.classList.add("loaded");
+  const{w,h}=getSize();renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();
+});
+
+loadModels();
+animate();
+</script>
+</body>
+</html>
