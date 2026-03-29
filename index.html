@@ -237,31 +237,23 @@ body.loaded{opacity:1;transform:translateY(0)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>
 /* ============================================================
-   CONFIGURE MODELS & COLORS
+   KONFIGURATION
    ============================================================
+   Die OBJ-Dateien liegen im SELBEN Ordner wie diese HTML-Datei.
+   Einfach den filename in MODEL_CONFIGS anpassen – fertig.
 
-   Option 1: Load OBJ files from a folder (RECOMMENDED)
-   - Place .obj files in a folder (e.g., "models/")
-   - Update OBJ_FOLDER with the folder path
-   - Add entries to MODEL_CONFIGS with matching names
-   
-   Option 2: Use Base64-encoded STL files (legacy)
-   1) Convert STL to Base64 (Terminal):
-      python3 -c "import base64; print(base64.b64encode(open('model.stl','rb').read()).decode())"
-      Or online: https://base64.guru/converter/encode/file
+   Beispiel-Ordnerstruktur:
+     /mein-projekt/
+       index.html          ← diese Datei
+       CableClip.obj
+       Hülle - OBJ.obj
+       ...
 
-   2) Enter Base64 string as value in STL_B64
-   3) Set each model name and color in MODEL_CONFIGS
-   
-   If both are empty → Demo shapes will be displayed
+   Optional: Unterordner verwenden → OBJ_FOLDER = "models/"
+   Leer lassen ("") = gleicher Ordner wie HTML
    ============================================================ */
 
-// Folder path for OBJ files (set to empty string "" to disable)
-const OBJ_FOLDER = "";
-
-const STL_B64 = {
-  // legacy_part: "YOUR_BASE64_STRING_HERE",
-};
+const OBJ_FOLDER = "./";   // "./" = gleicher Ordner | "models/" = Unterordner
 
 const MODEL_CONFIGS = [
   {
@@ -332,215 +324,122 @@ const MODEL_CONFIGS = [
     name: "Backplate with QR",
     filename: "BackPlate.obj",
     filename2: "QR-Code.obj",
-    // Backplate-Farbe (matt schwarz)
     color: "#000000",
     emissive: "#334455",
     emissiveIntensity: 0.05,
     metalness: 0.05,
     roughness: 0.80,
-
-    // QR-Code-Farbe (#A7CFEF)
     color2: "#A7CFEF",
     emissive2: "#000000",
     emissiveIntensity2: 0.03,
     metalness2: 0.00,
     roughness2: 0.20,
-
-    // Offset for QR position relative to Backplate
-    qrOffsetX: 0.5, // move QR slightly left
-    qrOffsetY: -0.825, // move QR slightly down
+    qrOffsetX: 0.5,
+    qrOffsetY: -0.825,
     qrOffsetZ: -3.8,
-
     rotation: { x: Math.PI * 1.5, y: 0, z: 0 },
   },
 ];
 
-/* ── STL Parser ─────────────────────────────────────────────── */
-function b64ToBuffer(b64){
-  const bin=atob(b64),buf=new ArrayBuffer(bin.length),u8=new Uint8Array(buf);
-  for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);return buf;
-}
-function parseBinarySTL(buffer){
-  const view=new DataView(buffer),nTri=view.getUint32(80,true);
-  const pos=new Float32Array(nTri*9),nrm=new Float32Array(nTri*9);
-  let off=84,pi=0,ni=0;
-  for(let i=0;i<nTri;i++){
-    const nx=view.getFloat32(off,true),ny=view.getFloat32(off+4,true),nz=view.getFloat32(off+8,true);
-    off+=12;
-    for(let v=0;v<3;v++){
-      pos[pi++]=view.getFloat32(off,true);pos[pi++]=view.getFloat32(off+4,true);pos[pi++]=view.getFloat32(off+8,true);
-      off+=12;nrm[ni++]=nx;nrm[ni++]=ny;nrm[ni++]=nz;
-    }
-    off+=2;
-  }
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute("position",new THREE.BufferAttribute(pos,3));
-  geo.setAttribute("normal",new THREE.BufferAttribute(nrm,3));
-  return{geo,triCount:nTri};
-}
-function parseASCIISTL(buffer){
-  const text=new TextDecoder().decode(buffer),verts=[];
-  const rx=/vertex\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)/g;
-  let m;while((m=rx.exec(text))!==null)verts.push(+m[1],+m[2],+m[3]);
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute("position",new THREE.BufferAttribute(new Float32Array(verts),3));
-  geo.computeVertexNormals();return{geo,triCount:verts.length/9};
-}
-function parseSTLBuffer(buf){
-  const nTri=new DataView(buf).getUint32(80,true),expected=84+nTri*50;
-  const isBin=buf.byteLength===expected||(()=>{
-    const b=new Uint8Array(buf,0,5);return!String.fromCharCode(...b).toLowerCase().startsWith("solid");
-  })();
-  return isBin?parseBinarySTL(buf):parseASCIISTL(buf);
-}
-
-/* ── OBJ Parser ────────────────────────────────────────────── */
+/* ── OBJ Loader ────────────────────────────────────────────── */
 function parseOBJText(text){
   const pos=[], nrm=[], faces=[];
   const lines=text.split('\n');
-  
   lines.forEach(line=>{
     const trimmed=line.trim();
     if(!trimmed || trimmed.startsWith('#')) return;
-    
     const parts=trimmed.split(/\s+/);
     const cmd=parts[0];
-    
     if(cmd==='v'){
-      const x=parseFloat(parts[1]), y=parseFloat(parts[2]), z=parseFloat(parts[3]);
-      pos.push(x,y,z);
+      pos.push(parseFloat(parts[1]),parseFloat(parts[2]),parseFloat(parts[3]));
     }else if(cmd==='vn'){
-      const nx=parseFloat(parts[1]), ny=parseFloat(parts[2]), nz=parseFloat(parts[3]);
-      nrm.push(nx,ny,nz);
+      nrm.push(parseFloat(parts[1]),parseFloat(parts[2]),parseFloat(parts[3]));
     }else if(cmd==='f'){
-      // Parse face vertices (support triangles and quads)
       const fverts=[];
       for(let j=1;j<parts.length;j++){
         const indices=parts[j].split('/');
-        const vi=parseInt(indices[0])-1; // vertex index
-        const ni=indices[2]?parseInt(indices[2])-1:-1; // normal index
-        fverts.push({vi,ni});
+        fverts.push({vi:parseInt(indices[0])-1, ni:indices[2]?parseInt(indices[2])-1:-1});
       }
-      // Triangulate if needed
       for(let j=1;j<fverts.length-1;j++){
         faces.push(fverts[0],fverts[j],fverts[j+1]);
       }
     }
   });
-  
-  // Build arrays
   const posArray=new Float32Array(faces.length*3);
   const nrmArray=nrm.length>0?new Float32Array(faces.length*3):null;
-  
   faces.forEach((f,i)=>{
     const pi=f.vi*3;
     if(pi+2<pos.length){
-      posArray[i*3]=pos[pi];
-      posArray[i*3+1]=pos[pi+1];
-      posArray[i*3+2]=pos[pi+2];
+      posArray[i*3]=pos[pi]; posArray[i*3+1]=pos[pi+1]; posArray[i*3+2]=pos[pi+2];
     }
     if(nrmArray && f.ni>=0){
       const ni=f.ni*3;
       if(ni+2<nrm.length){
-        nrmArray[i*3]=nrm[ni];
-        nrmArray[i*3+1]=nrm[ni+1];
-        nrmArray[i*3+2]=nrm[ni+2];
+        nrmArray[i*3]=nrm[ni]; nrmArray[i*3+1]=nrm[ni+1]; nrmArray[i*3+2]=nrm[ni+2];
       }
     }
   });
-  
   const geo=new THREE.BufferGeometry();
   geo.setAttribute("position",new THREE.BufferAttribute(posArray,3));
-  if(nrmArray)geo.setAttribute("normal",new THREE.BufferAttribute(nrmArray,3));
+  if(nrmArray) geo.setAttribute("normal",new THREE.BufferAttribute(nrmArray,3));
   geo.computeVertexNormals();
-  
   return{geo, triCount:Math.floor(faces.length/3)};
 }
 
-function alignSecondGeoToFirst(geoA, geoB){
-  geoA.computeBoundingBox();
-  geoB.computeBoundingBox();
-  const centerA=new THREE.Vector3();
-  const centerB=new THREE.Vector3();
-  geoA.boundingBox.getCenter(centerA);
-  geoB.boundingBox.getCenter(centerB);
-  const offset=new THREE.Vector3().subVectors(centerA, centerB);
-  const posB = geoB.attributes.position.array;
-  for(let i=0;i<posB.length;i+=3){
-    posB[i] += offset.x;
-    posB[i+1] += offset.y;
-    posB[i+2] += offset.z;
-  }
-  geoB.attributes.position.needsUpdate=true;
-  geoB.computeBoundingBox();
-  geoB.computeVertexNormals();
-}
-
-async function loadOBJFile(path){
-  const resp=await fetch(path);
-  if(!resp.ok) throw new Error(`Failed to load ${path}`);
-  const text=await resp.text();
+async function loadOBJFile(filename){
+  // Baut den Pfad relativ zum aktuellen HTML-Dokument
+  const base = OBJ_FOLDER.endsWith('/') || OBJ_FOLDER==='' ? OBJ_FOLDER : OBJ_FOLDER+'/';
+  const path = base + filename;
+  const resp = await fetch(path);
+  if(!resp.ok) throw new Error(`Konnte ${path} nicht laden (HTTP ${resp.status})`);
+  const text = await resp.text();
   return parseOBJText(text);
 }
 
-function centreAndScale(geo, cfg = null){
-  geo.computeBoundingBox();
-  const box=geo.boundingBox,c=new THREE.Vector3(),s=new THREE.Vector3();
-  box.getCenter(c);box.getSize(s);
-  
-  // Skip auto-rotation if custom rotation is defined
-  let skipAutoRotation = cfg && cfg.rotation && (cfg.rotation.x || cfg.rotation.y || cfg.rotation.z);
-  
-  if(!skipAutoRotation){
-    // Auto-rotate to make the longest axis vertical (stand upright)
-    const dims=[
-      {axis:0,length:s.x}, // X
-      {axis:1,length:s.y}, // Y
-      {axis:2,length:s.z}  // Z
-    ];
-    dims.sort((a,b)=>b.length-a.length);
-    const longestAxis=dims[0].axis;
-    
-    let rotationMatrix;
-    if(longestAxis===0){ // X is longest, rotate around Z to make Y vertical
-      rotationMatrix=new THREE.Matrix4().makeRotationZ(Math.PI/2);
-    }else if(longestAxis===2){ // Z is longest, rotate around X to make Y vertical
-      rotationMatrix=new THREE.Matrix4().makeRotationX(Math.PI/2);
-    }else{
-      rotationMatrix=null;
-    }
-    
-    if(rotationMatrix){
-      geo.applyMatrix4(rotationMatrix);
-      geo.computeBoundingBox();
-      box.getCenter(c);box.getSize(s);
-    }
-    
-    // Additional 180-degree rotation to flip models upside down
-    const flipMatrix = new THREE.Matrix4().makeRotationX(Math.PI);
-    geo.applyMatrix4(flipMatrix);
-    geo.computeBoundingBox();
-    box.getCenter(c);box.getSize(s);
-  }
-  
-  // Apply custom rotation from MODEL_CONFIGS
-  if(cfg && cfg.rotation){
-    const rotMatrix = new THREE.Matrix4();
-    if(cfg.rotation.x) rotMatrix.multiply(new THREE.Matrix4().makeRotationX(cfg.rotation.x));
-    if(cfg.rotation.y) rotMatrix.multiply(new THREE.Matrix4().makeRotationY(cfg.rotation.y));
-    if(cfg.rotation.z) rotMatrix.multiply(new THREE.Matrix4().makeRotationZ(cfg.rotation.z));
-    geo.applyMatrix4(rotMatrix);
-    geo.computeBoundingBox();
-    box.getCenter(c);box.getSize(s);
-  }
-  
-  const sc=6/Math.max(s.x,s.y,s.z,1),pos=geo.attributes.position.array;
-  for(let i=0;i<pos.length;i+=3){pos[i]=(pos[i]-c.x)*sc;pos[i+1]=(pos[i+1]-c.y)*sc;pos[i+2]=(pos[i+2]-c.z)*sc;}
-  geo.attributes.position.needsUpdate=true;geo.computeBoundingBox();
-  const lift=-geo.boundingBox.min.y + 7.0; // Hebe die Modelle 7.0 Einheiten höher an
-  for(let i=0;i<pos.length;i+=3)pos[i+1]+=lift;
-  geo.attributes.position.needsUpdate=true;geo.computeBoundingBox();geo.computeVertexNormals();
+/* ── Geometry helpers ───────────────────────────────────────── */
+function alignSecondGeoToFirst(geoA, geoB){
+  geoA.computeBoundingBox(); geoB.computeBoundingBox();
+  const cA=new THREE.Vector3(), cB=new THREE.Vector3();
+  geoA.boundingBox.getCenter(cA); geoB.boundingBox.getCenter(cB);
+  const off=new THREE.Vector3().subVectors(cA,cB);
+  const posB=geoB.attributes.position.array;
+  for(let i=0;i<posB.length;i+=3){posB[i]+=off.x;posB[i+1]+=off.y;posB[i+2]+=off.z;}
+  geoB.attributes.position.needsUpdate=true;
+  geoB.computeBoundingBox(); geoB.computeVertexNormals();
 }
+
+function centreAndScale(geo, cfg=null){
+  geo.computeBoundingBox();
+  const box=geo.boundingBox, c=new THREE.Vector3(), s=new THREE.Vector3();
+  box.getCenter(c); box.getSize(s);
+
+  const skipAutoRotation = cfg && cfg.rotation && (cfg.rotation.x||cfg.rotation.y||cfg.rotation.z);
+  if(!skipAutoRotation){
+    const dims=[{axis:0,length:s.x},{axis:1,length:s.y},{axis:2,length:s.z}];
+    dims.sort((a,b)=>b.length-a.length);
+    const longest=dims[0].axis;
+    let rm=null;
+    if(longest===0) rm=new THREE.Matrix4().makeRotationZ(Math.PI/2);
+    else if(longest===2) rm=new THREE.Matrix4().makeRotationX(Math.PI/2);
+    if(rm){geo.applyMatrix4(rm);geo.computeBoundingBox();box.getCenter(c);box.getSize(s);}
+    geo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI));
+    geo.computeBoundingBox(); box.getCenter(c); box.getSize(s);
+  }
+  if(cfg && cfg.rotation){
+    const rm=new THREE.Matrix4();
+    if(cfg.rotation.x) rm.multiply(new THREE.Matrix4().makeRotationX(cfg.rotation.x));
+    if(cfg.rotation.y) rm.multiply(new THREE.Matrix4().makeRotationY(cfg.rotation.y));
+    if(cfg.rotation.z) rm.multiply(new THREE.Matrix4().makeRotationZ(cfg.rotation.z));
+    geo.applyMatrix4(rm); geo.computeBoundingBox(); box.getCenter(c); box.getSize(s);
+  }
+  const sc=6/Math.max(s.x,s.y,s.z,1), pos=geo.attributes.position.array;
+  for(let i=0;i<pos.length;i+=3){pos[i]=(pos[i]-c.x)*sc;pos[i+1]=(pos[i+1]-c.y)*sc;pos[i+2]=(pos[i+2]-c.z)*sc;}
+  geo.attributes.position.needsUpdate=true; geo.computeBoundingBox();
+  const lift=-geo.boundingBox.min.y+7.0;
+  for(let i=0;i<pos.length;i+=3) pos[i+1]+=lift;
+  geo.attributes.position.needsUpdate=true; geo.computeBoundingBox(); geo.computeVertexNormals();
+}
+
 function makeDemoGeo(index){
   const shapes=[
     ()=>new THREE.TorusKnotGeometry(1.8,.55,120,18),
@@ -551,151 +450,124 @@ function makeDemoGeo(index){
   ];
   const geo=shapes[index%shapes.length]();
   geo.computeBoundingBox();
-  const lift=-geo.boundingBox.min.y,pos=geo.attributes.position.array;
-  for(let i=0;i<pos.length;i+=3)pos[i+1]+=lift;
-  geo.attributes.position.needsUpdate=true;geo.computeBoundingBox();
+  const lift=-geo.boundingBox.min.y, pos=geo.attributes.position.array;
+  for(let i=0;i<pos.length;i+=3) pos[i+1]+=lift;
+  geo.attributes.position.needsUpdate=true; geo.computeBoundingBox();
   return{geo,triCount:Math.floor(pos.length/9)};
 }
 
-/* ── Scene ──────────────────────────────────────────────────── */
+/* ── Scene setup ────────────────────────────────────────────── */
 const container=document.getElementById("three-container");
 function getSize(){return{w:container.clientWidth||window.innerWidth,h:container.clientHeight||Math.round(window.innerHeight*.55)};}
 const{w:iW,h:iH}=getSize();
-const scene=new THREE.Scene();scene.background=null;
+const scene=new THREE.Scene(); scene.background=null;
 const camera=new THREE.PerspectiveCamera(45,iW/iH,.01,2000);
 camera.position.set(0,3,12);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-renderer.setSize(iW,iH);renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.setSize(iW,iH); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
 scene.add(new THREE.AmbientLight(0xffffff,1.0));
-const sun=new THREE.DirectionalLight(0xfff8e0,3.0);sun.position.set(12,22,10);sun.castShadow=true;scene.add(sun);
-const fill=new THREE.DirectionalLight(0xaacfff,.75);fill.position.set(-10,4,-8);scene.add(fill);
-const rim=new THREE.DirectionalLight(0xffffff,.5);rim.position.set(0,-8,-12);scene.add(rim);
+const sun=new THREE.DirectionalLight(0xfff8e0,3.0); sun.position.set(12,22,10); sun.castShadow=true; scene.add(sun);
+const fill=new THREE.DirectionalLight(0xaacfff,.75); fill.position.set(-10,4,-8); scene.add(fill);
+const rim=new THREE.DirectionalLight(0xffffff,.5); rim.position.set(0,-8,-12); scene.add(rim);
 
-  const grid=new THREE.GridHelper(60,40,0x5588bb,0x3366aa);grid.material.opacity=.13;grid.material.transparent=true;grid.position.y=-2.0;scene.add(grid);
+const grid=new THREE.GridHelper(60,40,0x5588bb,0x3366aa); grid.material.opacity=.13; grid.material.transparent=true; grid.position.y=-2.0; scene.add(grid);
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(60,60),new THREE.MeshStandardMaterial({color:0x8fb8cc,transparent:true,opacity:.22,roughness:.95}));
-ground.rotation.x=-Math.PI/2;ground.position.y=-2.0;ground.receiveShadow=true;scene.add(ground);
+ground.rotation.x=-Math.PI/2; ground.position.y=-2.0; ground.receiveShadow=true; scene.add(ground);
 
 /* ── Camera controls ────────────────────────────────────────── */
 let theta=.5,phi=.38,orbitRadius=12,orbitAngle=.5;
 let orbitActive=true,leftDown=false,rightDown=false,prevMouse={x:0,y:0};
 const panOffset=new THREE.Vector3(),_right=new THREE.Vector3(),_dir=new THREE.Vector3();
-const hint=document.getElementById("canvasHint");let hintHidden=false;
+const hint=document.getElementById("canvasHint"); let hintHidden=false;
 function hideHint(){if(!hintHidden){hint.classList.add("hidden");hintHidden=true;}}
 container.addEventListener("contextmenu",e=>e.preventDefault());
 container.addEventListener("mousedown",e=>{
-  if(e.button===0)leftDown=true;if(e.button===1||e.button===2)rightDown=true;
-  prevMouse={x:e.clientX,y:e.clientY};hideHint();
+  if(e.button===0)leftDown=true; if(e.button===1||e.button===2)rightDown=true;
+  prevMouse={x:e.clientX,y:e.clientY}; hideHint();
 });
 window.addEventListener("mouseup",()=>{leftDown=false;rightDown=false;});
 window.addEventListener("mousemove",e=>{
   const dx=e.clientX-prevMouse.x,dy=e.clientY-prevMouse.y;
   prevMouse={x:e.clientX,y:e.clientY};
   if(leftDown&&!rightDown){
-    theta-=dx*.007;phi=Math.max(-Math.PI/2 + 0.1,Math.min(Math.PI/2.05,phi+dy*.006));
+    theta-=dx*.007; phi=Math.max(-Math.PI/2+0.1,Math.min(Math.PI/2.05,phi+dy*.006));
     if(orbitActive){orbitActive=false;updateOrbitBtn();}
   }
   if(rightDown){
-    const ps=orbitRadius*.0013;camera.getWorldDirection(_dir);
+    const ps=orbitRadius*.0013; camera.getWorldDirection(_dir);
     _right.crossVectors(_dir,camera.up).normalize();
-    panOffset.addScaledVector(_right,-dx*ps);panOffset.addScaledVector(camera.up,dy*ps);
+    panOffset.addScaledVector(_right,-dx*ps); panOffset.addScaledVector(camera.up,dy*ps);
   }
 });
-container.addEventListener("wheel",e=>{e.preventDefault();const zoomFactor=0.95;orbitRadius*=Math.pow(zoomFactor,e.deltaY*.01);orbitRadius=Math.max(1,Math.min(100,orbitRadius));},{passive:false});
+container.addEventListener("wheel",e=>{e.preventDefault();orbitRadius*=Math.pow(0.95,e.deltaY*.01);orbitRadius=Math.max(1,Math.min(100,orbitRadius));},{passive:false});
 let _touches=[];
 container.addEventListener("touchstart",e=>{_touches=[...e.touches];prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};hideHint();},{passive:true});
 window.addEventListener("touchend",e=>{_touches=[...e.touches];},{passive:true});
 window.addEventListener("touchmove",e=>{
   if(e.touches.length===1){
     const dx=e.touches[0].clientX-prevMouse.x,dy=e.touches[0].clientY-prevMouse.y;
-    theta-=dx*.007;phi=Math.max(-Math.PI/2 + 0.1,Math.min(Math.PI/2.05,phi+dy*.006));
+    theta-=dx*.007; phi=Math.max(-Math.PI/2+0.1,Math.min(Math.PI/2.05,phi+dy*.006));
     prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};
     if(orbitActive){orbitActive=false;updateOrbitBtn();}
   }
   if(e.touches.length===2&&_touches.length>=2){
     const d0=Math.hypot(_touches[0].clientX-_touches[1].clientX,_touches[0].clientY-_touches[1].clientY);
     const d1=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
-    orbitRadius=Math.max(1,Math.min(100,orbitRadius-(d1-d0)*.06));_touches=[...e.touches];
+    orbitRadius=Math.max(1,Math.min(100,orbitRadius-(d1-d0)*.06)); _touches=[...e.touches];
   }
 },{passive:true});
 
 /* ── Models ─────────────────────────────────────────────────── */
-const models=[];let activeIndex=-1,wireActive=false;
+const models=[]; let activeIndex=-1,wireActive=false;
 function getCfg(i){return MODEL_CONFIGS[i]||{name:`Bauteil ${i+1}`,color:"#5792f2",emissive:"#001166",emissiveIntensity:.15,metalness:.25,roughness:.65};}
+
 function addModel({geo,triCount},i){
   const cfg=getCfg(i);
-
-  // Erstelle Material für die erste Datei
   const mat1=new THREE.MeshStandardMaterial({
-    color:cfg.color,
-    emissive:cfg.emissive,
-    emissiveIntensity:cfg.emissiveIntensity,
-    metalness:cfg.metalness,
-    roughness:cfg.roughness
+    color:cfg.color, emissive:cfg.emissive, emissiveIntensity:cfg.emissiveIntensity,
+    metalness:cfg.metalness, roughness:cfg.roughness
   });
-
-  // Wenn filename2 vorhanden ist, erstelle Material für die zweite Datei
-  let mat2 = null;
+  let mat2=null;
   if(cfg.filename2){
-    mat2 = new THREE.MeshStandardMaterial({
-      color: cfg.color2 || cfg.color,
-      emissive: cfg.emissive2 || cfg.emissive,
-      emissiveIntensity: cfg.emissiveIntensity2 || cfg.emissiveIntensity,
-      metalness: cfg.metalness2 || cfg.metalness,
-      roughness: cfg.roughness2 || cfg.roughness
+    mat2=new THREE.MeshStandardMaterial({
+      color:cfg.color2||cfg.color, emissive:cfg.emissive2||cfg.emissive,
+      emissiveIntensity:cfg.emissiveIntensity2||cfg.emissiveIntensity,
+      metalness:cfg.metalness2||cfg.metalness, roughness:cfg.roughness2||cfg.roughness
     });
   }
-
-  // Erstelle Mesh mit Material(en)
-  let mesh;
-  if(mat2){
-    // Zwei Materialien für kombinierte Geometrie
-    mesh = new THREE.Mesh(geo, [mat1, mat2]);
-  } else {
-    // Einzelnes Material
-    mesh = new THREE.Mesh(geo, mat1);
-  }
-
-  mesh.castShadow=true;mesh.receiveShadow=true;mesh.visible=false;scene.add(mesh);
-
+  const mesh=new THREE.Mesh(geo, mat2?[mat1,mat2]:mat1);
+  mesh.castShadow=true; mesh.receiveShadow=true; mesh.visible=false; scene.add(mesh);
   const wf=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0xffffff,wireframe:true,transparent:true,opacity:.12}));
-  wf.visible=false;scene.add(wf);
+  wf.visible=false; scene.add(wf);
   models.push({name:cfg.name,mesh,wf,triCount,cfg});
 }
+
 function showModel(i){
   models.forEach((m,j)=>{m.mesh.visible=(j===i);m.wf.visible=(j===i)&&wireActive;});
   activeIndex=i;
   if(i>=0){
-    const geo = models[i].mesh.geometry;
-    geo.computeBoundingBox(); // Sicherstellen, dass Bounding Box aktuell ist
-    const bb = geo.boundingBox, sz = new THREE.Vector3();
+    const geo=models[i].mesh.geometry;
+    geo.computeBoundingBox();
+    const bb=geo.boundingBox, sz=new THREE.Vector3();
     bb.getSize(sz);
-
-    // Berechne optimale Kameradistanz basierend auf Modellgröße und Sichtfeld
-    const maxDim = Math.max(sz.x, sz.y, sz.z);
-    const fovRad = (camera.fov * Math.PI) / 180; // FOV in Radianten
-    // Erhöhe den Multiplikator für besseren Abstand
-    orbitRadius = Math.max(8, (maxDim / 2) / Math.tan(fovRad / 2) * 1.5);
-
-    // Kamera auf die Mitte des Modells zentrieren
-    const center = new THREE.Vector3();
-    bb.getCenter(center);
+    const maxDim=Math.max(sz.x,sz.y,sz.z);
+    const fovRad=(camera.fov*Math.PI)/180;
+    orbitRadius=Math.max(8,(maxDim/2)/Math.tan(fovRad/2)*1.5);
+    const center=new THREE.Vector3(); bb.getCenter(center);
     panOffset.copy(center);
-
-    // Kamera zentrieren für neues Modell
-    theta = .5; phi = .38; orbitActive = true; updateOrbitBtn();
-
-    // Kamera-Position sofort aktualisieren (nicht warten auf nächsten Frame)
+    theta=.5; phi=.38; orbitActive=true; updateOrbitBtn();
     const cx=orbitRadius*Math.sin(theta)*Math.cos(phi);
     const cy=orbitRadius*Math.sin(phi);
     const cz=orbitRadius*Math.cos(theta)*Math.cos(phi);
     camera.position.set(cx+panOffset.x,cy+panOffset.y,cz+panOffset.z);
     camera.lookAt(panOffset.x,panOffset.y,panOffset.z);
   }
-  updateStats();updateModelPill();
+  updateStats(); updateModelPill();
 }
+
 function setWire(on){wireActive=on;if(activeIndex>=0)models[activeIndex].wf.visible=on;}
 
 /* ── UI ─────────────────────────────────────────────────────── */
@@ -703,9 +575,10 @@ function updateStats(){
   if(activeIndex>=0){
     document.getElementById("statComponent").textContent=models[activeIndex].name;
     document.getElementById("statTri").textContent=models[activeIndex].triCount.toLocaleString("en-US");
-    document.getElementById("statFormat").textContent=OBJ_FOLDER && OBJ_FOLDER!=""?"OBJ":(Object.keys(STL_B64).length>0?"STL":"Demo");
+    document.getElementById("statFormat").textContent="OBJ";
   }
 }
+
 const modelPill=document.getElementById("modelPill");
 const modelSelector=document.getElementById("modelSelector");
 const modelBar=document.getElementById("modelControlsBar");
@@ -714,156 +587,122 @@ function buildModelPill(){
   [...modelPill.querySelectorAll("button")].forEach(b=>b.remove());
   models.forEach((m,i)=>{
     const btn=document.createElement("button");
-    const dot=document.createElement("span");dot.className="model-dot";dot.style.background=m.cfg.color;
-    btn.appendChild(dot);btn.appendChild(document.createTextNode(m.name));
+    const dot=document.createElement("span"); dot.className="model-dot"; dot.style.background=m.cfg.color;
+    btn.appendChild(dot); btn.appendChild(document.createTextNode(m.name));
     btn.addEventListener("click",()=>{showModel(i);moveModelSel(btn);});
     modelPill.appendChild(btn);
   });
   modelBar.style.display=models.length>1?"flex":"none";
 }
+
 function updateModelPill(){
   const btns=[...modelPill.querySelectorAll("button")];
   btns.forEach((b,i)=>b.classList.toggle("active",i===activeIndex));
-  if(activeIndex>=0&&btns[activeIndex])setTimeout(()=>moveModelSel(btns[activeIndex]),50);
+  if(activeIndex>=0&&btns[activeIndex]) setTimeout(()=>moveModelSel(btns[activeIndex]),50);
 }
+
 function moveModelSel(btn){
-  const pr=modelPill.getBoundingClientRect(),br=btn.getBoundingClientRect();
-  modelSelector.style.left=(br.left-pr.left)+"px";modelSelector.style.width=br.width+"px";
+  const pr=modelPill.getBoundingClientRect(), br=btn.getBoundingClientRect();
+  modelSelector.style.left=(br.left-pr.left)+"px"; modelSelector.style.width=br.width+"px";
   modelSelector.classList.add("ready");
 }
 
 const viewSel=document.getElementById("viewSelector");
 function moveViewSel(btn){
-  const pr=document.getElementById("viewPill").getBoundingClientRect(),br=btn.getBoundingClientRect();
-  viewSel.style.left=(br.left-pr.left)+"px";viewSel.style.width=br.width+"px";
+  const pr=document.getElementById("viewPill").getBoundingClientRect(), br=btn.getBoundingClientRect();
+  viewSel.style.left=(br.left-pr.left)+"px"; viewSel.style.width=br.width+"px";
   viewSel.classList.add("ready");
 }
 function updateOrbitBtn(){document.getElementById("btnOrbit").classList.toggle("active",orbitActive);}
 
 document.getElementById("btnOrbit").addEventListener("click",()=>{
-  orbitActive=!orbitActive;if(orbitActive)theta=orbitAngle;
-  updateOrbitBtn();moveViewSel(document.getElementById("btnOrbit"));
+  orbitActive=!orbitActive; if(orbitActive)theta=orbitAngle;
+  updateOrbitBtn(); moveViewSel(document.getElementById("btnOrbit"));
 });
 document.getElementById("btnReset").addEventListener("click",()=>{
-  theta=.5;phi=.38;orbitRadius=12;panOffset.set(0,0,0);
-  if(activeIndex>=0)showModel(activeIndex);
-  orbitActive=true;updateOrbitBtn();moveViewSel(document.getElementById("btnReset"));
+  theta=.5; phi=.38; orbitRadius=12; panOffset.set(0,0,0);
+  if(activeIndex>=0) showModel(activeIndex);
+  orbitActive=true; updateOrbitBtn(); moveViewSel(document.getElementById("btnReset"));
 });
 document.getElementById("btnWire").addEventListener("click",()=>{
-  wireActive=!wireActive;document.getElementById("btnWire").classList.toggle("active",wireActive);
-  setWire(wireActive);moveViewSel(document.getElementById("btnWire"));
+  wireActive=!wireActive; document.getElementById("btnWire").classList.toggle("active",wireActive);
+  setWire(wireActive); moveViewSel(document.getElementById("btnWire"));
 });
 setTimeout(()=>{moveViewSel(document.getElementById("btnOrbit"));viewSel.classList.add("ready");},80);
 
-/* ── Load ───────────────────────────────────────────────────── */
+/* ── Load models ────────────────────────────────────────────── */
 async function loadModels(){
-  // Load OBJ files if folder is configured
-  if(OBJ_FOLDER && OBJ_FOLDER!=""){
-    for(let i=0;i<MODEL_CONFIGS.length;i++){
-      const cfg=MODEL_CONFIGS[i];
-      if(!cfg.filename) continue;
-      try{
-        const path=OBJ_FOLDER+cfg.filename;
-        let result=await loadOBJFile(path);
+  let anyLoaded=false;
 
-        // Wenn filename2 vorhanden ist, lade zweite Datei und kombiniere
-        if(cfg.filename2){
-          const path2 = OBJ_FOLDER + cfg.filename2;
-          const result2 = await loadOBJFile(path2);
+  for(let i=0;i<MODEL_CONFIGS.length;i++){
+    const cfg=MODEL_CONFIGS[i];
+    if(!cfg.filename) continue;
 
-          // Drehe QR-Code um 180° (auf die Rückseite) und zusätzlich auf den Kopf
-          const qrFlip = new THREE.Matrix4().makeRotationY(Math.PI).multiply(new THREE.Matrix4().makeRotationX(Math.PI));
-          result2.geo.applyMatrix4(qrFlip);
-          result2.geo.computeBoundingBox();
-          result2.geo.computeVertexNormals();
+    try{
+      let result=await loadOBJFile(cfg.filename);
 
-          // Positioniere QR-Code relativ zur Backplate-Mitte (zuerst anpassen, damit sie perfekt ineinander sitzen)
-          alignSecondGeoToFirst(result.geo, result2.geo);
+      // Zweite Datei laden & kombinieren (z. B. QR-Code auf Backplate)
+      if(cfg.filename2){
+        const result2=await loadOBJFile(cfg.filename2);
 
-          // Feinabstimmung: QR-Code in eine Einkerbung bringen (optional konfigurierbar)
-          const bbBack = result.geo.boundingBox;
-          const bbQR = result2.geo.boundingBox;
-          const qrInset = cfg.qrInset !== undefined ? cfg.qrInset :- 0.9; // Standard 5 mm Modell-Einheiten
+        const qrFlip=new THREE.Matrix4().makeRotationY(Math.PI).multiply(new THREE.Matrix4().makeRotationX(Math.PI));
+        result2.geo.applyMatrix4(qrFlip);
+        result2.geo.computeBoundingBox(); result2.geo.computeVertexNormals();
 
-          // QR soll nahe am Backplate-Oberteil liegen, aber im Recess (einkerbung)
-          const desiredQRMaxY = bbBack.max.y - qrInset;
-          const currentQRMaxY = bbQR.max.y;
-          const yCorrection = desiredQRMaxY - currentQRMaxY;
+        alignSecondGeoToFirst(result.geo, result2.geo);
 
-          const qrOffsetX = cfg.qrOffsetX || 0;
-          const qrOffsetY = cfg.qrOffsetY || 0;
-          const qrOffsetZ = cfg.qrOffsetZ || 0;
+        const bbBack=result.geo.boundingBox, bbQR=result2.geo.boundingBox;
+        const qrInset=cfg.qrInset!==undefined?cfg.qrInset:-0.9;
+        const yCorrection=(bbBack.max.y-qrInset)-bbQR.max.y;
+        const qrOffsetX=cfg.qrOffsetX||0, qrOffsetY=cfg.qrOffsetY||0, qrOffsetZ=cfg.qrOffsetZ||0;
 
-          if(Math.abs(yCorrection) > 1e-6 || Math.abs(qrOffsetX) > 1e-8 || Math.abs(qrOffsetY) > 1e-8 || Math.abs(qrOffsetZ) > 1e-8){
-            const pos2 = result2.geo.attributes.position.array;
-            for(let p=0;p<pos2.length;p+=3){
-              if(Math.abs(yCorrection) > 1e-6) pos2[p+1] += yCorrection;
-              pos2[p] += qrOffsetX;
-              pos2[p+1] += qrOffsetY;
-              pos2[p+2] += qrOffsetZ;
-            }
-            result2.geo.attributes.position.needsUpdate=true;
-            result2.geo.computeBoundingBox();
+        if(Math.abs(yCorrection)>1e-6||Math.abs(qrOffsetX)>1e-8||Math.abs(qrOffsetY)>1e-8||Math.abs(qrOffsetZ)>1e-8){
+          const pos2=result2.geo.attributes.position.array;
+          for(let p=0;p<pos2.length;p+=3){
+            if(Math.abs(yCorrection)>1e-6) pos2[p+1]+=yCorrection;
+            pos2[p]+=qrOffsetX; pos2[p+1]+=qrOffsetY; pos2[p+2]+=qrOffsetZ;
           }
-
-          // Kombiniere beide Geometrien
-          const combinedGeo = new THREE.BufferGeometry();
-
-          // Sammle alle Positionen und Normals
-          const positions1 = result.geo.attributes.position.array;
-          const normals1 = result.geo.attributes.normal ? result.geo.attributes.normal.array : null;
-          const positions2 = result2.geo.attributes.position.array;
-          const normals2 = result2.geo.attributes.normal ? result2.geo.attributes.normal.array : null;
-
-          // Erstelle Gruppen für Material-Zuweisung
-          combinedGeo.addGroup(0, positions1.length / 3, 0); // Material 0 für erste Datei
-          combinedGeo.addGroup(positions1.length / 3, positions2.length / 3, 1); // Material 1 für zweite Datei
-
-          // Kombiniere Positionen
-          const combinedPositions = new Float32Array(positions1.length + positions2.length);
-          combinedPositions.set(positions1, 0);
-          combinedPositions.set(positions2, positions1.length);
-          combinedGeo.setAttribute('position', new THREE.BufferAttribute(combinedPositions, 3));
-
-          // Kombiniere Normals falls vorhanden
-          if(normals1 && normals2){
-            const combinedNormals = new Float32Array(normals1.length + normals2.length);
-            combinedNormals.set(normals1, 0);
-            combinedNormals.set(normals2, normals1.length);
-            combinedGeo.setAttribute('normal', new THREE.BufferAttribute(combinedNormals, 3));
-          } else {
-            combinedGeo.computeVertexNormals();
-          }
-
-          result = {geo: combinedGeo, triCount: (result.triCount + result2.triCount)};
+          result2.geo.attributes.position.needsUpdate=true; result2.geo.computeBoundingBox();
         }
 
-        centreAndScale(result.geo, cfg);
-        addModel(result,i);
-      }catch(e){
-        console.warn("Error loading OBJ:",cfg.filename,e);
-        // Fallback to demo
-        addModel(makeDemoGeo(i),i);
+        const combinedGeo=new THREE.BufferGeometry();
+        const p1=result.geo.attributes.position.array, p2=result2.geo.attributes.position.array;
+        const n1=result.geo.attributes.normal?.array, n2=result2.geo.attributes.normal?.array;
+
+        combinedGeo.addGroup(0,p1.length/3,0);
+        combinedGeo.addGroup(p1.length/3,p2.length/3,1);
+
+        const cp=new Float32Array(p1.length+p2.length); cp.set(p1,0); cp.set(p2,p1.length);
+        combinedGeo.setAttribute('position',new THREE.BufferAttribute(cp,3));
+
+        if(n1&&n2){
+          const cn=new Float32Array(n1.length+n2.length); cn.set(n1,0); cn.set(n2,n1.length);
+          combinedGeo.setAttribute('normal',new THREE.BufferAttribute(cn,3));
+        }else{
+          combinedGeo.computeVertexNormals();
+        }
+
+        result={geo:combinedGeo, triCount:result.triCount+result2.triCount};
       }
+
+      centreAndScale(result.geo, cfg);
+      addModel(result, i);
+      anyLoaded=true;
+    }catch(e){
+      console.warn(`⚠️  Konnte "${cfg.filename}" nicht laden:`, e.message);
+      // Überspringe dieses Modell – kein Demo-Fallback
     }
   }
-  // Load STL files if configured
-  else if(Object.keys(STL_B64).length>0){
-    const keys=Object.keys(STL_B64);
-    keys.forEach((k,i)=>{
-      try{const r=parseSTLBuffer(b64ToBuffer(STL_B64[k]));centreAndScale(r.geo, getCfg(i));addModel(r,i);}
-      catch(e){console.warn("Error loading STL:",k,e);}
-    });
-  }
-  // Use demo shapes
-  else{
+
+  // Wenn gar nichts geladen wurde → Demo-Shapes zeigen
+  if(!anyLoaded){
+    console.info("Keine OBJ-Dateien gefunden – zeige Demo-Shapes.");
     for(let i=0;i<Math.min(MODEL_CONFIGS.length,5);i++){
-      const result = makeDemoGeo(i);
-      centreAndScale(result.geo, MODEL_CONFIGS[i]);
-      addModel(result,i);
+      const r=makeDemoGeo(i); centreAndScale(r.geo, MODEL_CONFIGS[i]); addModel(r,i);
     }
   }
-  buildModelPill();showModel(0);
+
+  buildModelPill(); showModel(0);
 }
 
 /* ── Render loop ────────────────────────────────────────────── */
@@ -881,13 +720,13 @@ function animate(){
 }
 
 window.addEventListener("resize",()=>{
-  const{w,h}=getSize();renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();
+  const{w,h}=getSize(); renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix();
 });
 window.addEventListener("load",()=>{
   const ov=document.getElementById("loadingOverlay");
-  ov.style.opacity="0";setTimeout(()=>ov.style.display="none",520);
+  ov.style.opacity="0"; setTimeout(()=>ov.style.display="none",520);
   document.body.classList.add("loaded");
-  const{w,h}=getSize();renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();
+  const{w,h}=getSize(); renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix();
 });
 
 loadModels();
